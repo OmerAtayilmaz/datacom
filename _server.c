@@ -1,19 +1,21 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <pthread.h>
-#include <unistd.h>
-#include <arpa/inet.h>
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <process.h>
+
+#pragma comment(lib, "Ws2_32.lib")
 
 #define PORT 8080
 #define MAX_CLIENTS 10
 #define TABLE_COUNT 5
 
-int clients[MAX_CLIENTS];
+SOCKET clients[MAX_CLIENTS];
 int client_count = 0;
-pthread_mutex_t client_lock;
+CRITICAL_SECTION client_lock;
 
-int tables[TABLE_COUNT];
+int tables[TABLE_COUNT]; 
 
 void initialize_tables() {
     for (int i = 0; i < TABLE_COUNT; i++) {
@@ -21,11 +23,11 @@ void initialize_tables() {
     }
 }
 
-void send_message(int client_socket, const char* message) {
+void send_message(SOCKET client_socket, const char* message) {
     send(client_socket, message, strlen(message), 0);
 }
 
-void show_tables(int client_socket) {
+void show_tables(SOCKET client_socket) {
     char message[256] = "Available Tables: ";
     char table_info[16];
     for (int i = 0; i < TABLE_COUNT; i++) {
@@ -38,7 +40,7 @@ void show_tables(int client_socket) {
     send_message(client_socket, message);
 }
 
-void apply_table(int client_socket, int client_id) {
+void apply_table(SOCKET client_socket, int client_id) {
     for (int i = 0; i < TABLE_COUNT; i++) {
         if (tables[i] == 0) {
             tables[i] = client_id; // Store client ID instead of 1
@@ -62,8 +64,8 @@ void release_table(int client_id) {
     }
 }
 
-void* handle_client(void* client_socket_ptr) {
-    int client_socket = *(int*)client_socket_ptr;
+void handle_client(void* client_socket_ptr) {
+    SOCKET client_socket = *(SOCKET*)client_socket_ptr;
     free(client_socket_ptr);
 
     char buffer[1024];
@@ -90,31 +92,37 @@ void* handle_client(void* client_socket_ptr) {
         }
     }
 
-    pthread_mutex_lock(&client_lock);
+    EnterCriticalSection(&client_lock);
     for (int i = 0; i < MAX_CLIENTS; i++) {
         if (clients[i] == client_socket) {
-            clients[i] = -1;
+            clients[i] = INVALID_SOCKET;
             client_count--;
             break;
         }
     }
-    pthread_mutex_unlock(&client_lock);
+    LeaveCriticalSection(&client_lock);
 
-    close(client_socket);
-    return NULL;
+    closesocket(client_socket);
+    _endthread();
 }
 
 int main() {
-    int server_socket, new_socket;
+    WSADATA wsa;
+    SOCKET server_socket;
     struct sockaddr_in server_addr, client_addr;
-    socklen_t addr_len;
+    int addr_len;
 
-    pthread_mutex_init(&client_lock, NULL);
+    InitializeCriticalSection(&client_lock);
     initialize_tables();
 
+    if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) {
+        printf("WSAStartup failed. Error: %d\n", WSAGetLastError());
+        return 1;
+    }
+
     server_socket = socket(AF_INET, SOCK_STREAM, 0);
-    if (server_socket == -1) {
-        perror("Socket creation failed");
+    if (server_socket == INVALID_SOCKET) {
+        printf("Socket creation failed. Error: %d\n", WSAGetLastError());
         return 1;
     }
 
@@ -122,53 +130,52 @@ int main() {
     server_addr.sin_addr.s_addr = INADDR_ANY;
     server_addr.sin_port = htons(PORT);
 
-    if (bind(server_socket, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
-        perror("Bind failed");
+    if (bind(server_socket, (struct sockaddr*)&server_addr, sizeof(server_addr)) == SOCKET_ERROR) {
+        printf("Bind failed. Error: %d\n", WSAGetLastError());
         return 1;
     }
 
-    if (listen(server_socket, 3) < 0) {
-        perror("Listen failed");
+    if (listen(server_socket, 3) == SOCKET_ERROR) {
+        printf("Listen failed. Error: %d\n", WSAGetLastError());
         return 1;
     }
 
     printf("Restaurant Server Started. Port: %d\n", PORT);
 
     for (int i = 0; i < MAX_CLIENTS; i++) {
-        clients[i] = -1;
+        clients[i] = INVALID_SOCKET;
     }
 
     while (1) {
         addr_len = sizeof(client_addr);
-        int* new_client_socket = malloc(sizeof(int));
+        SOCKET* new_client_socket = malloc(sizeof(SOCKET));
 
-        if ((*new_client_socket = accept(server_socket, (struct sockaddr*)&client_addr, &addr_len)) < 0) {
-            perror("Accept failed");
+        if ((*new_client_socket = accept(server_socket, (struct sockaddr*)&client_addr, &addr_len)) == INVALID_SOCKET) {
+            printf("Accept failed. Error: %d\n", WSAGetLastError());
             free(new_client_socket);
             continue;
         }
 
-        pthread_mutex_lock(&client_lock);
+        EnterCriticalSection(&client_lock);
         if (client_count >= MAX_CLIENTS) {
             send_message(*new_client_socket, "Server is at full capacity.\n");
-            close(*new_client_socket);
+            closesocket(*new_client_socket);
             free(new_client_socket);
         } else {
             for (int i = 0; i < MAX_CLIENTS; i++) {
-                if (clients[i] == -1) {
+                if (clients[i] == INVALID_SOCKET) {
                     clients[i] = *new_client_socket;
                     client_count++;
                     break;
                 }
             }
-            pthread_t client_thread;
-            pthread_create(&client_thread, NULL, handle_client, new_client_socket);
-            pthread_detach(client_thread);
+            _beginthread(handle_client, 0, new_client_socket);
         }
-        pthread_mutex_unlock(&client_lock);
+        LeaveCriticalSection(&client_lock);
     }
 
-    pthread_mutex_destroy(&client_lock);
-    close(server_socket);
+    DeleteCriticalSection(&client_lock);
+    closesocket(server_socket);
+    WSACleanup();
     return 0;
 }
