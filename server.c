@@ -15,10 +15,36 @@ pthread_mutex_t client_lock;
 
 int tables[TABLE_COUNT];
 
+// Function to log each command to a file
+void log_command(int client_id, const char* command) {
+    FILE* file = fopen("commands.log", "a");
+    if (file == NULL) {
+        perror("File open failed");
+        return;
+    }
+    fprintf(file, "Client %d command: %s\n", client_id, command);
+    fclose(file);
+}
+
+// Save table statuses to a file
+void save_table_status() {
+    FILE* file = fopen("tables.txt", "w");
+    if (file == NULL) {
+        perror("File open failed");
+        return;
+    }
+    for (int i = 0; i < TABLE_COUNT; i++) {
+        fprintf(file, "Table %d: %s\n", i + 1, tables[i] == 0 ? "Available" : "Occupied");
+    }
+    fclose(file);
+}
+
+// Initialize tables
 void initialize_tables() {
     for (int i = 0; i < TABLE_COUNT; i++) {
         tables[i] = 0;
     }
+    save_table_status();
 }
 
 void send_message(int client_socket, const char* message) {
@@ -46,6 +72,7 @@ void apply_table(int client_socket, int client_id) {
             char message[64];
             snprintf(message, sizeof(message), "Table %d assigned to you.\n", i + 1);
             send_message(client_socket, message);
+            save_table_status(); // Save table statuses
             return;
         }
     }
@@ -57,6 +84,7 @@ void release_table(int client_id) {
         if (tables[i] == client_id) {
             tables[i] = 0;
             printf("Table %d released by Client %d\n", i + 1, client_id);
+            save_table_status(); // Save table statuses
             return;
         }
     }
@@ -76,6 +104,9 @@ void* handle_client(void* client_socket_ptr) {
         buffer[read_size] = '\0';
         buffer[strcspn(buffer, "\r\n")] = '\0'; // Remove newline characters
         printf("Client %d command: %s\n", client_id, buffer);
+
+        // Log the received command
+        log_command(client_id, buffer);
 
         if (strcmp(buffer, "exit") == 0) {
             printf("Client %d disconnected.\n", client_id);

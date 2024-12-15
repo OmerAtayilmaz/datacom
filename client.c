@@ -4,8 +4,8 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 
-#define SERVER_IP "127.0.0.1"  // Sunucunun IP adresi
-#define SERVER_PORT 8080       // Sunucunun port numarası
+#define SERVER_IP "127.0.0.1"  
+#define SERVER_PORT 8080      
 #define BUFFER_SIZE 1024
 
 int main() {
@@ -14,7 +14,7 @@ int main() {
     char buffer[BUFFER_SIZE];
     int read_size;
 
-    // İstemci soketini oluştur
+    // Client soketini oluştur
     client_socket = socket(AF_INET, SOCK_STREAM, 0);
     if (client_socket == -1) {
         perror("Socket creation failed");
@@ -46,12 +46,7 @@ int main() {
         fgets(buffer, BUFFER_SIZE, stdin);
         buffer[strcspn(buffer, "\n")] = '\0';  // Yeni satırı kaldır
 
-        // Kullanıcı çıkış yapmak isterse
-        if (strcmp(buffer, "exit") == 0) {
-            printf("Disconnecting from server.\n");
-            break;
-        }
-
+   
         // Sunucuya mesaj gönder
         if (send(client_socket, buffer, strlen(buffer), 0) < 0) {
             perror("Failed to send message");

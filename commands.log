@@ -1,0 +1,6 @@
+Client 4 command: show
+Client 4 command: apply
+Client 5 command: show
+Client 4 command: exit
+Client 5 command: show
+Client 5 command: exit
